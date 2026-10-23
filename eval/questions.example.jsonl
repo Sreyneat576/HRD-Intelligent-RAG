@@ -1,0 +1,10 @@
+{"question": "Which OCR engines does the system use?", "filename": "HRD Intelligence - Project Detail.pdf", "answer_contains": "PaddleOCR"}
+{"question": "What vector database is used for embeddings?", "filename": "HRD Intelligence - Project Detail.pdf", "answer_contains": "pgvector"}
+{"question": "How many chat sessions does the chatbot keep?", "filename": "HRD Intelligence - Project Detail.pdf", "answer_contains": "10 sessions"}
+{"question": "Which allowance types can the admin manage?", "filename": "HRD Intelligence - Project Detail.pdf", "answer_contains": "Meal allowance"}
+{"question": "What does the weekly summary agent send and when?", "filename": "HRD Intelligence - Project Detail.pdf", "answer_contains": "Friday"}
+{"question": "What file formats can users upload?", "filename": "HRD Intelligence - Project Detail.pdf", "answer_contains": "PPTX"}
+{"question": "What permissions exist for shared folders?", "filename": "HRD Intelligence - Project Detail.pdf", "answer_contains": "Viewer"}
+{"question": "Which API provides student check-in and check-out data?", "filename": "HRD Intelligence - Project Detail.pdf", "answer_contains": "RDA API"}
+{"question": "Who are the mentors of the project?", "filename": "HRD Intelligence - Project Detail.pdf", "answer_contains": "Lim Houy Hyong"}
+{"question": "When are alumni asked to update their job details?", "filename": "HRD Intelligence - Project Detail.pdf", "answer_contains": "6 months"}

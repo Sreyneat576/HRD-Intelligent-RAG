@@ -1,0 +1,92 @@
+# Dev stack for the HRD Intelligence AI service.
+#   docker compose up -d                 -> Postgres+pgvector, Ollama (GPU), reranker (CPU)
+#   docker compose --profile app up -d   -> also runs the AI service + test UI in containers
+name: hrd-ai
+
+services:
+  db:
+    image: pgvector/pgvector:0.8.1-pg16
+    environment:
+      POSTGRES_USER: hrd_ai
+      POSTGRES_PASSWORD: hrd_ai
+      POSTGRES_DB: hrd_ai
+    ports:
+      - "5433:5432"   # 5432 is already used by the local PostgreSQL 16 install
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hrd_ai -d hrd_ai"]
+      interval: 5s
+      retries: 20
+
+  ollama:
+    image: ollama/ollama:0.40.6
+    environment:
+      OLLAMA_CONTEXT_LENGTH: "6144"   # fits a 4 GB GPU best; raise on bigger GPUs (and LLM_CONTEXT_WINDOW)
+      OLLAMA_KEEP_ALIVE: "30m"
+      OLLAMA_MAX_LOADED_MODELS: "2"
+      # Flash attention + 8-bit KV cache roughly halve the KV-cache memory (helps a 4 GB GPU).
+      OLLAMA_FLASH_ATTENTION: "1"
+      OLLAMA_KV_CACHE_TYPE: "q8_0"
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  reranker:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.8
+    restart: unless-stopped   # retries the 2.3 GB model download if the network drops
+    command: ["--model-id", "BAAI/bge-reranker-v2-m3", "--max-batch-tokens", "4096", "--auto-truncate"]   # small batches keep CPU RAM low
+    ports:
+      - "8081:80"
+    volumes:
+      - tei:/data
+
+  ai-service:
+    profiles: ["app"]
+    build:
+      context: .
+      args:
+        WITH_PADDLE: "false"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://hrd_ai:hrd_ai@db:5432/hrd_ai
+      LLM_BASE_URL: http://ollama:11434/v1
+      EMBED_BASE_URL: http://ollama:11434/v1
+      RERANK_BASE_URL: http://reranker:80
+      OCR_ENGINE: tesseract
+    ports:
+      - "8000:8000"
+    volumes:
+      - uploads:/app/data/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+
+  ui:
+    profiles: ["app"]
+    build:
+      context: .
+      args:
+        WITH_PADDLE: "false"
+    command: ["streamlit", "run", "ui/app.py", "--server.port", "8501", "--server.address", "0.0.0.0"]
+    env_file: .env
+    environment:
+      AI_SERVICE_URL: http://ai-service:8000
+    ports:
+      - "8501:8501"
+    depends_on:
+      - ai-service
+
+volumes:
+  pgdata:
+  ollama:
+  tei:
+  uploads:
