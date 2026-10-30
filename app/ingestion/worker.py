@@ -7,6 +7,8 @@
 
 import asyncio
 import logging
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,16 +25,19 @@ log = logging.getLogger(__name__)
 
 _CLAIM = text(
     """
-    UPDATE documents
-    SET status = 'processing', locked_at = now(), attempts = attempts + 1, updated_at = now()
-    WHERE id = (
-        SELECT id FROM documents
+    WITH job AS (
+        SELECT id, updated_at AS queued_at FROM documents
         WHERE status = 'pending' AND updated_at <= now() - make_interval(secs => attempts * 15)
         ORDER BY updated_at
         FOR UPDATE SKIP LOCKED
         LIMIT 1
     )
-    RETURNING id, filename, extension, storage_path, sha256, attempts
+    UPDATE documents d
+    SET status = 'processing', locked_at = now(), attempts = d.attempts + 1, updated_at = now()
+    FROM job
+    WHERE d.id = job.id
+    RETURNING d.id, d.filename, d.extension, d.storage_path, d.sha256, d.attempts,
+              round(extract(epoch FROM now() - job.queued_at) * 1000)::int AS queue_ms
     """
 )
 
@@ -52,14 +57,18 @@ class Job:
     storage_path: str | None
     sha256: str
     attempts: int
+    queue_ms: int = 0
 
 
 class IngestionWorker:
-    def __init__(self, settings: Settings, sessionmaker: async_sessionmaker[AsyncSession], graph):
-        """Keep the settings, DB sessions and compiled ingestion graph."""
+    def __init__(self, settings: Settings, sessionmaker: async_sessionmaker[AsyncSession], graph,
+                 on_job_done: Callable[[], None] | None = None):
+        """Keep the settings, DB sessions and compiled ingestion graph. `on_job_done` runs after every
+        job (used to stop the memory-hungry Surya OCR worker between jobs)."""
         self.settings = settings
         self.sessionmaker = sessionmaker
         self.graph = graph
+        self.on_job_done = on_job_done
         self._wake = asyncio.Event()
         self._tasks: list[asyncio.Task] = []
 
@@ -114,12 +123,17 @@ class IngestionWorker:
             row = (await session.execute(_CLAIM)).mappings().first()
         if row is None:
             return False
-        await self._process(Job(**row))
+        try:
+            await self._process(Job(**row))
+        finally:
+            if self.on_job_done is not None:
+                await asyncio.to_thread(self.on_job_done)
         return True
 
     async def _process(self, job: Job) -> None:
         """Run the ingestion graph for one job and delete the uploaded file when done."""
         log.info("Indexing %s (%s), attempt %d", job.id, job.filename, job.attempts)
+        started = time.perf_counter()
         try:
             if not job.storage_path or not Path(job.storage_path).exists():
                 raise IngestionError("Uploaded file is missing on disk; upload it again")
@@ -130,6 +144,9 @@ class IngestionWorker:
                     "extension": job.extension,
                     "path": job.storage_path,
                     "sha256": job.sha256,
+                    "started": started,
+                    "queue_ms": job.queue_ms,
+                    "attempt": job.attempts,
                 }
             )
         except Exception as exc:
@@ -137,7 +154,7 @@ class IngestionWorker:
             return
         if result.get("stored"):
             Path(job.storage_path).unlink(missing_ok=True)
-            log.info("Indexed %s: %d chunks", job.id, len(result["chunks"]))
+            log.info("Indexed %s: %d chunks in %s ms", job.id, len(result["chunks"]), result["trace"].get("total_ms"))
             await self._callback(job.id, DocStatus.READY, None, len(result["chunks"]))
 
     async def _fail(self, job: Job, exc: Exception) -> None:

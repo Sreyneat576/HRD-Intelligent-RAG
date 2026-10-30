@@ -17,12 +17,21 @@ class UserContext:
     role: str | None
 
 
+CONSOLE_COOKIE = "hrd_console"
+
+
 def require_service_token(request: Request, authorization: str | None = Header(default=None)) -> None:
-    """Reject the request (401) unless it carries `Authorization: Bearer <SERVICE_TOKEN>`."""
-    expected = request.app.state.settings.service_token
+    """Reject the request (401) unless it carries `Authorization: Bearer <SERVICE_TOKEN>`, or - when the
+    developer console is enabled - the console's session cookie (set by GET /console)."""
+    settings = request.app.state.settings
     scheme, _, token = (authorization or "").partition(" ")
-    if scheme.lower() != "bearer" or not secrets.compare_digest(token.encode(), expected.encode()):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or missing service token")
+    if scheme.lower() == "bearer" and secrets.compare_digest(token.encode(), settings.service_token.encode()):
+        return
+    cookie = request.cookies.get(CONSOLE_COOKIE)
+    secret = getattr(request.app.state, "console_secret", None)
+    if settings.console_enabled and cookie and secret and secrets.compare_digest(cookie.encode(), secret.encode()):
+        return
+    raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or missing service token")
 
 
 def get_user(

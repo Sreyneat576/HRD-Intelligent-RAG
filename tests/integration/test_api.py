@@ -47,10 +47,9 @@ async def database_url() -> str:
     return url
 
 
-@pytest.fixture
-async def api(database_url, tmp_path):
-    """(client, container) with an empty database; the worker is driven manually via `index_all`."""
-    settings = Settings(
+def test_settings(database_url, tmp_path, **overrides) -> Settings:
+    """Settings for an isolated test app (no worker loop, no reranker, no query rewrite)."""
+    return Settings(
         _env_file=None,
         database_url=database_url,
         upload_dir=tmp_path / "uploads",
@@ -58,7 +57,14 @@ async def api(database_url, tmp_path):
         worker_enabled=False,
         rerank_enabled=False,
         query_rewrite=False,
+        **overrides,
     )
+
+
+@pytest.fixture
+async def api(database_url, tmp_path):
+    """(client, container) with an empty database; the worker is driven manually via `index_all`."""
+    settings = test_settings(database_url, tmp_path)
     container = build_container(
         settings,
         chat_model=fake_chat_model(),
@@ -165,7 +171,7 @@ async def test_streaming_sse_events(api):
     )
     assert response.headers["content-type"].startswith("text/event-stream")
     events = [line.split(":", 1)[1].strip() for line in response.text.splitlines() if line.startswith("event:")]
-    assert "token" in events and events[-2:] == ["citations", "done"]
+    assert "token" in events and events[-3:] == ["citations", "trace", "done"]
     done = next(
         json.loads(line.split(":", 1)[1])
         for line in response.text.splitlines()[::-1]
@@ -232,3 +238,51 @@ async def test_auth_and_validation(api):
         "/api/v1/documents", files={"file": ("x.exe", b"MZ")}, data={"document_id": "x", "owner_id": "u"}
     )
     assert bad_type.status_code == 415
+
+
+async def test_pipeline_traces_are_recorded_and_reported(api):
+    client, container = api
+    await upload(client, "doc-meal", "meal.txt", MEAL)
+    await index_all(container)
+    doc_trace = (await client.get("/api/v1/documents/doc-meal")).json()["trace"]
+    for key in ("queue_ms", "parse_ms", "chunk_ms", "embed_ms", "store_ms", "total_ms"):
+        assert isinstance(doc_trace[key], int), key
+    assert doc_trace["chunks"] >= 1 and doc_trace["ocr"] is None
+
+    session_id = await new_session(client)
+    result = await ask(client, session_id, "How much is the meal allowance?", ["doc-meal"])
+    trace = result["trace"]
+    for key in ("prepare_ms", "embed_ms", "dense_ms", "lexical_ms", "llm_ttft_ms", "generate_ms", "first_token_ms", "total_ms"):
+        assert isinstance(trace[key], int), key
+    assert trace["sources"][0]["document_id"] == "doc-meal" and trace["search_query"]
+    saved = (await client.get(f"/api/v1/chat/sessions/{session_id}/messages")).json()[-1]
+    assert saved["trace"]["total_ms"] == trace["total_ms"]
+
+    stats = (await client.get("/api/v1/stats")).json()
+    assert stats["documents"]["total"] == 1 and stats["chat"]["answers"] == 1
+    assert stats["chat"]["stages"]["total_ms"]["avg"] is not None and stats["ingestion"]["runs"] == 1
+    traces = (await client.get("/api/v1/traces?limit=5")).json()
+    assert traces["chat"][0]["question"] == "How much is the meal allowance?"
+    assert traces["ingestion"][0]["id"] == "doc-meal"
+    info = (await client.get("/api/v1/info")).json()
+    assert info["llm"]["model"] and info["ocr"]["mode"]
+
+
+async def test_console_signs_in_with_a_cookie(database_url, tmp_path):
+    for enabled in (True, False):
+        settings = test_settings(database_url, tmp_path, console_enabled=enabled)
+        container = build_container(settings, chat_model=fake_chat_model(), embeddings=HashingEmbeddings(1024),
+                                    reranker=None, ocr=FakeOcr())
+        app = create_app(settings, container)
+        app.state.container = container
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            page = await client.get("/console")
+            if enabled:
+                assert page.status_code == 200 and "HRD Intelligence" in page.text
+                assert (await client.get("/api/v1/documents")).status_code == 200  # cookie, no token
+                assert (await client.get("/console/assets/console.js")).status_code == 200
+            else:
+                assert page.status_code == 404
+                client.cookies.set("hrd_console", app.state.console_secret)
+                assert (await client.get("/api/v1/documents")).status_code == 401
+        await container.engine.dispose()

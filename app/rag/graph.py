@@ -9,10 +9,14 @@ rerank        : bge-reranker-v2-m3 keeps the best `context_top_k` chunks above t
 generate      : LLM answers from the numbered sources only, citing [n]
 not_found / no_documents : fixed answers without calling the LLM
 cite          : maps the [n] markers in the answer to source documents
+
+Every node adds its timings to `trace` (merged by a reducer): rewrite, query embedding, dense and
+keyword search, fusion, rerank, time to first token and generation speed.
 """
 
 import logging
-from typing import TypedDict
+import time
+from typing import Annotated, TypedDict
 
 from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
@@ -20,6 +24,7 @@ from langchain_core.messages import BaseMessage, trim_messages
 from langgraph.graph import END, START, StateGraph
 
 from app.core.config import Settings
+from app.core.timing import merge_trace, ms_since
 from app.llm.reranker import RemoteReranker
 from app.llm.tokenizer import TokenCounter
 from app.rag.prompts import (
@@ -48,6 +53,7 @@ class RagState(TypedDict, total=False):
     rerank_error: str | None
     answer: str
     citations: list[dict]
+    trace: Annotated[dict, merge_trace]
 
 
 def build_rag_graph(
@@ -74,34 +80,41 @@ def build_rag_graph(
         question = state["question"]
         history = state.get("history") or []
         if not history or not settings.query_rewrite:
-            return {"search_query": question}
+            return {"search_query": question, "trace": {"rewrite_ms": 0, "rewritten": False}}
+        started = time.perf_counter()
         try:
             message = await rewrite_chain.ainvoke(
                 {"history": history[-settings.history_turns * 2 :], "question": question}
             )
-            query = strip_think(str(message.content)).strip().strip('"').splitlines()[0].strip()
-            return {"search_query": query or question}
+            query = strip_think(str(message.content)).strip().strip('"').splitlines()[0].strip() or question
         except Exception as exc:
             log.warning("Query rewrite failed, using the original question: %s", exc)
-            return {"search_query": question}
+            query = question
+        return {"search_query": query, "trace": {"rewrite_ms": ms_since(started), "rewritten": query != question}}
 
     async def retrieve(state: RagState) -> RagState:
         """Hybrid search over the allowed documents only."""
-        documents = await retriever.for_documents(state["allowed_document_ids"]).ainvoke(state["search_query"])
-        return {"candidates": documents}
+        started = time.perf_counter()
+        documents, search = await retriever.for_documents(state["allowed_document_ids"]).asearch(state["search_query"])
+        return {"candidates": documents, "trace": {**search, "retrieve_ms": ms_since(started)}}
 
     async def rerank(state: RagState) -> RagState:
         """Cross-encoder rerank; falls back to the fused ranking if the reranker is down."""
         candidates = state.get("candidates") or []
         if not candidates:
-            return {"sources": []}
+            return {"sources": [], "trace": {"rerank_ms": 0, "kept": 0}}
         if reranker is None:
-            return {"sources": candidates[: settings.context_top_k]}
+            sources = candidates[: settings.context_top_k]
+            return {"sources": sources, "trace": {"rerank_ms": 0, "reranked": False, "kept": len(sources)}}
+        started = time.perf_counter()
         try:
-            return {"sources": list(await reranker.acompress_documents(candidates, state["search_query"]))}
+            sources = list(await reranker.acompress_documents(candidates, state["search_query"]))
+            error = None
         except Exception as exc:
             log.warning("Reranker unavailable, using hybrid ranking: %s", exc)
-            return {"sources": candidates[: settings.context_top_k], "rerank_error": str(exc)}
+            sources, error = candidates[: settings.context_top_k], str(exc)
+        trace = {"rerank_ms": ms_since(started), "reranked": error is None, "kept": len(sources)}
+        return {"sources": sources, "rerank_error": error, "trace": trace}
 
     def has_sources(state: RagState) -> str:
         """Route: answer with the LLM only when something relevant was found."""
@@ -122,16 +135,35 @@ def build_rag_graph(
             allow_partial=False,
         )
         messages = answer_prompt.format_messages(history=history, sources=sources, question=state["question"])
-        response = await chat_model.ainvoke(messages)
-        return {"answer": strip_think(str(response.content))}
+        started = time.perf_counter()
+        first_token_ms = None
+        response = None
+        async for chunk in chat_model.astream(messages):
+            if first_token_ms is None and chunk.content:
+                first_token_ms = ms_since(started)
+            response = chunk if response is None else response + chunk
+        generate_ms = ms_since(started)
+        usage = (getattr(response, "usage_metadata", None) or {}) if response is not None else {}
+        output_tokens = usage.get("output_tokens")
+        decode_s = (generate_ms - (first_token_ms or 0)) / 1000
+        trace = {
+            "llm_ttft_ms": first_token_ms,
+            "generate_ms": generate_ms,
+            "input_tokens": usage.get("input_tokens") or count_message_tokens(messages),
+            "output_tokens": output_tokens,
+            "tokens_per_s": round(output_tokens / decode_s, 1) if output_tokens and decode_s > 0 else None,
+            "history_messages": len(history),
+        }
+        return {"answer": strip_think(str(response.content if response is not None else "")), "trace": trace}
 
     async def not_found(state: RagState) -> RagState:
         """Nothing relevant in the allowed documents."""
-        return {"answer": NOT_FOUND_MESSAGE, "sources": []}
+        return {"answer": NOT_FOUND_MESSAGE, "sources": [], "trace": {"llm_skipped": "no relevant sources"}}
 
     async def no_documents(state: RagState) -> RagState:
         """The user has no documents to search."""
-        return {"answer": NO_DOCUMENTS_MESSAGE, "search_query": state["question"], "sources": []}
+        return {"answer": NO_DOCUMENTS_MESSAGE, "search_query": state["question"], "sources": [],
+                "trace": {"llm_skipped": "no allowed documents"}}
 
     async def cite(state: RagState) -> RagState:
         """Turn [n] markers in the answer into citation records."""

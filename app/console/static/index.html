@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <script>
+    /* Apply a stored light/dark override before first paint (no flash of the wrong theme). */
+    try { document.querySelector('meta[name="color-scheme"]').content = localStorage.getItem("color-scheme") ?? "light dark"; } catch (e) {}
+  </script>
+  <title>Overview | HRD Intelligence AI Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="/console/assets/console.css">
+  <script src="/console/assets/console.js" defer></script>
+</head>
+<body>
+  <!-- Icon sprite (Lucide-style strokes). Decorative: every icon-only control also has visible or hidden text. -->
+  <svg class="sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></symbol>
+    <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M9.94 15.5A2 2 0 0 0 8.5 14.06l-6.13-1.58a.5.5 0 0 1 0-.96L8.5 9.94A2 2 0 0 0 9.94 8.5l1.58-6.13a.5.5 0 0 1 .96 0L14.06 8.5A2 2 0 0 0 15.5 9.94l6.13 1.58a.5.5 0 0 1 0 .96L15.5 14.06a2 2 0 0 0-1.44 1.44l-1.58 6.13a.5.5 0 0 1-.96 0z"/><path d="M20 3v4M22 5h-4M4 17v2M5 18H3"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+    <symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></symbol>
+    <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2M15 20v2M2 15h2M2 9h2M20 15h2M20 9h2M9 2v2M9 20v2"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2zM22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4M16 13H8M16 17H8M10 9H8"/></symbol>
+    <symbol id="i-sheet" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4M8 13h2M14 13h2M8 17h2M14 17h2"/></symbol>
+    <symbol id="i-slides" viewBox="0 0 24 24"><path d="M2 3h20M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3M7 21l5-5 5 5"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M14.54 21.69a.5.5 0 0 0 .94-.03l6.5-19a.5.5 0 0 0-.64-.63l-19 6.5a.5.5 0 0 0-.02.93l7.93 3.18a2 2 0 0 1 1.11 1.11z"/><path d="m21.85 2.15-10.94 10.94"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+    <symbol id="i-zap" viewBox="0 0 24 24"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65M22 12.65l-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></symbol>
+    <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5M3 12a9 3 0 0 0 18 0"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4M12 17h.01"/></symbol>
+    <symbol id="i-loader" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></symbol>
+    <symbol id="i-message" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+    <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+    <symbol id="i-scan" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 8h8M7 12h10M7 16h6"/></symbol>
+    <symbol id="i-panel" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+    <symbol id="i-gauge" viewBox="0 0 24 24"><path d="m12 14 4-4M3.34 19a10 10 0 1 1 17.32 0"/></symbol>
+    <symbol id="i-logo" viewBox="0 0 32 32"><path d="M16 3 5 7.5v8.2c0 6.6 4.6 11.2 11 13.3 6.4-2.1 11-6.7 11-13.3V7.5Z" fill="currentColor" stroke="none"/><path d="M11.5 11v10M20.5 11v10M11.5 16h9" stroke="#fff" stroke-width="2.4" fill="none"/></symbol>
+  </svg>
+
+  <a class="skip-link visually-hidden" href="#content">Skip to main content</a>
+
+  <div class="app">
+    <aside class="sidebar" aria-label="Console">
+      <div class="brand">
+        <span class="brand-logo"><svg class="icon" aria-hidden="true"><use href="#i-logo"/></svg></span>
+        <span class="brand-name">HRD Intelligence<small>AI service console</small></span>
+      </div>
+      <nav aria-label="Console sections">
+        <p class="nav-label" id="nav-workspace">Workspace</p>
+        <ul aria-labelledby="nav-workspace" role="list">
+          <li><a class="nav-link" href="#overview" data-nav="overview"><svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg>Overview</a></li>
+          <li><a class="nav-link" href="#assistant" data-nav="assistant"><svg class="icon" aria-hidden="true"><use href="#i-sparkles"/></svg>AI assistant</a></li>
+          <li><a class="nav-link" href="#documents" data-nav="documents"><svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg>Data management<span class="nav-badge" id="nav-indexing" hidden></span></a></li>
+        </ul>
+        <p class="nav-label" id="nav-pipeline">Pipeline</p>
+        <ul aria-labelledby="nav-pipeline" role="list">
+          <li><a class="nav-link" href="#pipeline" data-nav="pipeline"><svg class="icon" aria-hidden="true"><use href="#i-activity"/></svg>Pipeline log</a></li>
+          <li><a class="nav-link" href="#models" data-nav="models"><svg class="icon" aria-hidden="true"><use href="#i-cpu"/></svg>Model stack</a></li>
+          <li><a class="nav-link" href="/docs" target="_blank" rel="noopener"><svg class="icon" aria-hidden="true"><use href="#i-book"/></svg>API reference<svg class="icon icon-xs nav-ext" aria-hidden="true"><use href="#i-external"/></svg></a></li>
+        </ul>
+      </nav>
+      <div class="sidebar-foot">
+        <svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg>
+        <span>Local console · models run on this machine</span>
+      </div>
+    </aside>
+
+    <div class="main-col">
+      <header class="topbar">
+        <nav class="crumbs" aria-label="Breadcrumb">
+          <ol role="list"><li>Console</li><li aria-current="page" id="crumb-current">Overview</li></ol>
+        </nav>
+        <div class="topbar-actions">
+          <form class="search" role="search" id="global-search">
+            <label for="global-search-input" class="visually-hidden">Search documents</label>
+            <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+            <input id="global-search-input" type="search" placeholder="Search documents…" autocomplete="off">
+            <kbd aria-hidden="true">/</kbd>
+          </form>
+          <span class="health-pill" id="health-pill" role="status"><span class="dot"></span><span class="health-text">Checking services…</span></span>
+          <button type="button" class="icon-btn theme-toggle" id="theme-toggle">
+            <svg class="icon to-dark" aria-hidden="true"><use href="#i-moon"/></svg><span class="visually-hidden to-dark">Switch to dark theme</span>
+            <svg class="icon to-light" aria-hidden="true"><use href="#i-sun"/></svg><span class="visually-hidden to-light">Switch to light theme</span>
+          </button>
+          <button type="button" class="user-chip" id="user-chip" aria-haspopup="dialog">
+            <span class="avatar" id="user-avatar">A1</span>
+            <span class="user-meta"><span id="user-name">admin-1</span><small id="user-role">HRD Admin</small></span>
+            <svg class="icon icon-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <main id="content" tabindex="-1">
+        <!-- ======================================================== Overview -->
+        <section class="view" data-view="overview" aria-labelledby="overview-title">
+          <div class="page-head">
+            <div>
+              <h1 id="overview-title"><span id="greeting">Good morning</span>, <span class="js-user-name">admin-1</span></h1>
+              <p class="lede">Indexing activity, retrieval quality and answer latency of the local RAG pipeline.</p>
+            </div>
+            <div class="page-actions">
+              <a class="btn" href="#documents"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg>Upload documents</a>
+              <a class="btn btn-primary" href="#assistant"><svg class="icon" aria-hidden="true"><use href="#i-sparkles"/></svg>Ask the assistant</a>
+            </div>
+          </div>
+
+          <div class="banner card" id="overview-banner">
+            <span class="banner-icon"><svg class="icon" aria-hidden="true"><use href="#i-sparkles"/></svg></span>
+            <div><strong id="banner-title">Pipeline summary</strong><p id="banner-text">Collecting timings…</p></div>
+            <a class="banner-link" href="#pipeline">Open pipeline log</a>
+          </div>
+
+          <div class="kpi-grid" id="kpis"></div>
+
+          <div class="grid-3">
+            <article class="card">
+              <header class="card-head"><div><h2>Where answer time goes</h2><p>Average of the last answers, per stage</p></div></header>
+              <div class="donut-wrap" id="answer-donut"></div>
+            </article>
+            <article class="card">
+              <header class="card-head"><div><h2>Recent answers</h2><p>End-to-end time per question</p></div><a class="link" href="#pipeline">View all</a></header>
+              <ul class="list" id="recent-answers" role="list"></ul>
+            </article>
+            <article class="card">
+              <header class="card-head"><div><h2>Model stack</h2><p>Everything runs locally</p></div><a class="link" href="#models">Details</a></header>
+              <ol class="rank-list" id="stack-list" role="list"></ol>
+            </article>
+          </div>
+
+          <div class="grid-3">
+            <article class="card">
+              <header class="card-head"><div><h2>Indexing stages</h2><p>Average time per document</p></div></header>
+              <div id="ingest-bars"></div>
+            </article>
+            <article class="card">
+              <header class="card-head"><div><h2>Documents by type</h2><p>All uploaded files</p></div></header>
+              <div class="donut-wrap" id="type-donut"></div>
+            </article>
+            <article class="card">
+              <header class="card-head"><div><h2>Recently indexed</h2><p>Latest uploads and their status</p></div><a class="link" href="#documents">Manage</a></header>
+              <ul class="list" id="recent-docs" role="list"></ul>
+            </article>
+          </div>
+        </section>
+
+        <!-- ======================================================== Assistant -->
+        <section class="view view-assistant" data-view="assistant" aria-labelledby="assistant-title" hidden>
+          <h1 id="assistant-title" class="visually-hidden">AI assistant</h1>
+          <div class="chat-layout" id="chat-layout">
+            <aside class="card chat-sessions" aria-labelledby="sessions-title">
+              <header class="panel-head">
+                <h2 id="sessions-title">Chats</h2>
+                <span class="muted small">max 10 kept</span>
+              </header>
+              <div class="new-chat">
+                <div class="seg" role="radiogroup" aria-label="New chat type">
+                  <label><input type="radio" name="chat-scope" value="general" checked><span>General</span></label>
+                  <label><input type="radio" name="chat-scope" value="folder"><span>Folder</span></label>
+                </div>
+                <label for="new-chat-folder" class="visually-hidden">Folder</label>
+                <select id="new-chat-folder" hidden></select>
+                <button type="button" class="btn btn-primary btn-block" id="new-chat"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>New chat</button>
+              </div>
+              <label for="session-filter" class="visually-hidden">Search chats</label>
+              <input type="search" id="session-filter" class="input input-sm" placeholder="Search chats…">
+              <ul class="session-list" id="session-list" role="list"></ul>
+            </aside>
+
+            <article class="card chat-main" aria-labelledby="chat-title">
+              <header class="chat-head">
+                <div class="chat-title-wrap">
+                  <h2 id="chat-title">Start a conversation</h2>
+                  <span class="chip" id="chat-scope-chip" hidden></span>
+                </div>
+                <div class="chat-head-actions">
+                  <button type="button" class="icon-btn" id="rename-chat" hidden><svg class="icon" aria-hidden="true"><use href="#i-pencil"/></svg><span class="visually-hidden">Rename chat</span></button>
+                  <button type="button" class="icon-btn" id="delete-chat" hidden><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg><span class="visually-hidden">Delete chat</span></button>
+                  <button type="button" class="icon-btn" id="toggle-context" aria-expanded="true" aria-controls="chat-context"><svg class="icon" aria-hidden="true"><use href="#i-panel"/></svg><span class="visually-hidden">Show knowledge panel</span></button>
+                </div>
+              </header>
+              <div class="messages" id="messages" role="log" aria-label="Conversation"></div>
+              <form class="composer" id="composer">
+                <label for="question" class="visually-hidden">Ask about your HRD documents</label>
+                <textarea id="question" rows="1" placeholder="Ask about your HRD documents…" disabled></textarea>
+                <div class="composer-bar">
+                  <label class="switch"><input type="checkbox" id="debug-toggle" checked><span>Retrieval details</span></label>
+                  <span class="muted small" id="composer-hint">Enter to send · Shift+Enter for a new line</span>
+                  <button type="submit" class="btn btn-primary" id="send" disabled><svg class="icon" aria-hidden="true"><use href="#i-send"/></svg>Send</button>
+                </div>
+              </form>
+            </article>
+
+            <aside class="card chat-context" id="chat-context" aria-labelledby="context-title">
+              <header class="panel-head">
+                <h2 id="context-title">Knowledge access</h2>
+              </header>
+              <p class="muted small">Documents this user may read. Spring sends these ids with every question; here you choose them.</p>
+              <div class="context-actions">
+                <button type="button" class="link-btn" id="allow-all">Select all</button>
+                <button type="button" class="link-btn" id="allow-none">Clear</button>
+                <span class="muted small" id="allow-count"></span>
+              </div>
+              <ul class="allow-list" id="allow-list" role="list"></ul>
+              <h3 class="context-sub">Last retrieval</h3>
+              <div id="last-retrieval" class="muted small">Ask a question to see the ranked sources.</div>
+            </aside>
+          </div>
+        </section>
+
+        <!-- ======================================================== Documents -->
+        <section class="view" data-view="documents" aria-labelledby="documents-title" hidden>
+          <div class="page-head">
+            <div>
+              <h1 id="documents-title">Data management</h1>
+              <p class="lede">Upload HRD documents; they are parsed, OCR'd when needed, chunked, embedded and indexed.</p>
+            </div>
+          </div>
+
+          <div class="grid-upload">
+            <article class="card">
+              <header class="card-head"><div><h2>Upload</h2><p>PDF, DOCX, PPTX, XLSX, CSV, TXT, MD, PNG, JPG · up to 50 MB</p></div></header>
+              <form id="upload-form">
+                <div class="dropzone" id="dropzone">
+                  <svg class="icon icon-lg" aria-hidden="true"><use href="#i-upload"/></svg>
+                  <p><strong>Drop files here</strong> or <label for="file-input" class="link">browse</label></p>
+                  <p class="muted small">Scans and photos are read with PaddleOCR, and with Surya when the text is Khmer or unclear.</p>
+                  <input type="file" id="file-input" multiple accept=".pdf,.docx,.pptx,.xlsx,.csv,.txt,.md,.png,.jpg,.jpeg" class="visually-hidden">
+                </div>
+                <div class="upload-row">
+                  <div class="field">
+                    <label for="upload-folder">Folder</label>
+                    <input id="upload-folder" class="input" list="folder-options" value="general" required>
+                    <datalist id="folder-options"></datalist>
+                  </div>
+                </div>
+              </form>
+              <ul class="upload-queue" id="upload-queue" role="list"></ul>
+            </article>
+            <article class="card">
+              <header class="card-head"><div><h2>Index health</h2><p>Live status of the ingestion queue</p></div></header>
+              <div class="status-tiles" id="status-tiles"></div>
+            </article>
+          </div>
+
+          <article class="card">
+            <header class="card-head card-head-wrap">
+              <div><h2 id="doc-table-title">Documents</h2><p>Click a row for the ingestion timeline and chunks</p></div>
+              <div class="table-tools">
+                <div class="seg" role="radiogroup" aria-label="Filter by status">
+                  <label><input type="radio" name="doc-status" value="" checked><span>All</span></label>
+                  <label><input type="radio" name="doc-status" value="ready"><span>Ready</span></label>
+                  <label><input type="radio" name="doc-status" value="indexing"><span>Indexing</span></label>
+                  <label><input type="radio" name="doc-status" value="failed"><span>Failed</span></label>
+                </div>
+                <label for="doc-filter" class="visually-hidden">Filter documents by name</label>
+                <input type="search" id="doc-filter" class="input input-sm" placeholder="Filter by name…">
+              </div>
+            </header>
+            <div class="table-wrap">
+              <table class="table" id="doc-table">
+                <caption class="visually-hidden">Uploaded documents with indexing status and time</caption>
+                <thead><tr>
+                  <th scope="col">Document</th><th scope="col">Folder</th><th scope="col">Status</th>
+                  <th scope="col" class="num">Pages</th><th scope="col" class="num">Chunks</th><th scope="col">OCR</th>
+                  <th scope="col" class="num">Index time</th><th scope="col">Updated</th>
+                </tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </article>
+        </section>
+
+        <!-- ======================================================== Pipeline log -->
+        <section class="view" data-view="pipeline" aria-labelledby="pipeline-title" hidden>
+          <div class="page-head">
+            <div>
+              <h1 id="pipeline-title">Pipeline log</h1>
+              <p class="lede">Timing of every stage: chunking, embedding, retrieval, reranking and the model's answer.</p>
+            </div>
+            <div class="page-actions">
+              <div class="seg" role="radiogroup" aria-label="Pipeline">
+                <label><input type="radio" name="log-kind" value="chat" checked><span>Chat answers</span></label>
+                <label><input type="radio" name="log-kind" value="ingestion"><span>Indexing runs</span></label>
+              </div>
+              <button type="button" class="btn" id="refresh-log"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>Refresh</button>
+            </div>
+          </div>
+          <div class="stage-cards" id="stage-cards"></div>
+          <article class="card">
+            <div class="table-wrap">
+              <table class="table table-log" id="log-table">
+                <caption class="visually-hidden" id="log-caption">Recent chat answers with per-stage timings</caption>
+                <thead></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </article>
+        </section>
+
+        <!-- ======================================================== Models -->
+        <section class="view" data-view="models" aria-labelledby="models-title" hidden>
+          <div class="page-head">
+            <div>
+              <h1 id="models-title">Model stack</h1>
+              <p class="lede">The models and settings behind each pipeline stage. Change them in <code>ai-service/.env</code>.</p>
+            </div>
+          </div>
+          <div class="model-grid" id="model-grid"></div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <a class="fab" href="#assistant"><svg class="icon" aria-hidden="true"><use href="#i-sparkles"/></svg><span class="visually-hidden">Open the AI assistant</span></a>
+
+  <!-- Document details (side drawer) -->
+  <dialog id="doc-dialog" class="drawer" closedby="any" aria-labelledby="doc-dialog-title">
+    <header class="drawer-head">
+      <div>
+        <h2 id="doc-dialog-title">Document</h2>
+        <p class="muted small" id="doc-dialog-sub"></p>
+      </div>
+      <form method="dialog"><button class="icon-btn" value="close"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg><span class="visually-hidden">Close</span></button></form>
+    </header>
+    <div class="drawer-body" id="doc-dialog-body"></div>
+  </dialog>
+
+  <!-- Acting user (simulates the user Spring would forward) -->
+  <dialog id="user-dialog" class="modal" closedby="any" aria-labelledby="user-dialog-title">
+    <form method="dialog" id="user-form">
+      <h2 id="user-dialog-title">Acting user</h2>
+      <p class="muted small">The console calls the AI service the way Spring would, on behalf of this user.</p>
+      <div class="field"><label for="user-id-input">User id (X-User-Id)</label><input id="user-id-input" class="input" required></div>
+      <div class="field"><label for="user-role-input">Role (X-User-Role)</label>
+        <select id="user-role-input" class="input"><option value="ADMIN">HRD Admin</option><option value="INSTRUCTOR">Instructor</option></select>
+      </div>
+      <div class="modal-actions"><button class="btn" value="cancel" formnovalidate>Cancel</button><button class="btn btn-primary" value="save">Save</button></div>
+    </form>
+  </dialog>
+
+  <!-- Rename chat -->
+  <dialog id="rename-dialog" class="modal" closedby="any" aria-labelledby="rename-dialog-title">
+    <form method="dialog" id="rename-form">
+      <h2 id="rename-dialog-title">Rename chat</h2>
+      <div class="field"><label for="rename-input">Title</label><input id="rename-input" class="input" maxlength="200" required></div>
+      <div class="modal-actions"><button class="btn" value="cancel" formnovalidate>Cancel</button><button class="btn btn-primary" value="save">Save</button></div>
+    </form>
+  </dialog>
+
+  <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+</body>
+</html>

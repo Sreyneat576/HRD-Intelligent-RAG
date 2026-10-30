@@ -1,0 +1,8 @@
+# Surya OCR ("Surya 1", surya-ocr 0.17) runs in its OWN virtualenv as a worker process, so PyTorch never
+# shares an environment with PaddlePaddle. Install (Windows paths shown):
+#   python -m venv .venv-surya
+#   .venv-surya\Scripts\python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+#   .venv-surya\Scripts\python -m pip install -r requirements-surya.txt
+surya-ocr==0.17.1
+transformers>=4.56.1,<5   # surya 0.17 is not compatible with transformers 5
+requests                  # used by surya 0.17 but not declared as a dependency

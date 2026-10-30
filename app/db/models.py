@@ -50,6 +50,8 @@ class Document(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
     indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Per-stage timings of the last indexing run (queue, parse/OCR, chunk, embed, store).
+    trace: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
 
 
 class Chunk(Base):
@@ -90,4 +92,6 @@ class ChatMessage(Base):
     role: Mapped[str] = mapped_column(String(16))  # user | assistant
     content: Mapped[str] = mapped_column(Text)
     citations: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
+    # Assistant answers: per-stage timings, search query, ranked sources and model.
+    trace: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

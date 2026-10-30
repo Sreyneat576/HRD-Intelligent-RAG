@@ -1,11 +1,15 @@
 """FastAPI application: `uvicorn app.main:app`."""
 
 import logging
+import secrets
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
-from app.api import chat, documents, health
+from app.api import chat, documents, health, insights
+from app.console.router import STATIC_DIR
+from app.console.router import router as console_router
 from app.container import Container, build_container
 from app.core.config import Settings, get_settings
 
@@ -43,6 +47,7 @@ def create_app(settings: Settings | None = None, container: Container | None = N
             await _register_eureka(settings)
         yield
         await app.state.container.worker.stop()
+        app.state.container.ocr.close()  # stops the Surya worker process, if it was started
         await app.state.container.engine.dispose()
 
     app = FastAPI(
@@ -52,9 +57,13 @@ def create_app(settings: Settings | None = None, container: Container | None = N
         lifespan=lifespan,
     )
     app.state.settings = settings
+    app.state.console_secret = secrets.token_urlsafe(32)  # new per process: console cookies expire on restart
     app.include_router(health.router)
     app.include_router(documents.router)
     app.include_router(chat.router)
+    app.include_router(insights.router)
+    app.include_router(console_router)
+    app.mount("/console/assets", StaticFiles(directory=STATIC_DIR), name="console-assets")
     return app
 
 

@@ -91,3 +91,18 @@ async def test_graph_streams_generate_tokens(settings, token_counter):
             tokens.append(payload[0].content)
     assert "".join(tokens) == "Meal allowance is 50 [1]."
     assert len(tokens) > 1
+
+
+async def test_graph_records_stage_timings(settings, token_counter):
+    graph, _ = build(settings, token_counter, [doc("policy", "Meal allowance is 50 dollars.")])
+    state = await graph.ainvoke({"question": "meal?", "history": [], "allowed_document_ids": ["policy"]})
+    trace = state["trace"]
+    for key in ("rewrite_ms", "embed_ms", "dense_ms", "lexical_ms", "retrieve_ms", "rerank_ms", "llm_ttft_ms", "generate_ms"):
+        assert isinstance(trace[key], int), key
+    assert trace["kept"] == 1 and trace["candidates"] == 1 and trace["input_tokens"] > 0
+
+
+async def test_graph_trace_marks_skipped_llm(settings, token_counter):
+    graph, _ = build(settings, token_counter, [doc("other", "x")])
+    state = await graph.ainvoke({"question": "q", "history": [], "allowed_document_ids": ["policy"]})
+    assert state["trace"]["llm_skipped"] == "no relevant sources" and "generate_ms" not in state["trace"]

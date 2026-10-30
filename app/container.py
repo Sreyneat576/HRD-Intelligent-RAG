@@ -55,7 +55,14 @@ def build_container(
     embeddings = embeddings or build_embeddings(settings)
     reranker = build_reranker(settings) if reranker is _DEFAULT else reranker
     ocr = ocr or build_ocr_engine(
-        settings.ocr_engine, settings.ocr_lang, settings.ocr_structure, settings.ocr_paddle_mkldnn
+        settings.ocr_engine,
+        lang=settings.ocr_lang,
+        structure=settings.ocr_structure,
+        paddle_mkldnn=settings.ocr_paddle_mkldnn,
+        surya_python=settings.surya_python,
+        surya_device=settings.surya_device,
+        fallback_min_confidence=settings.ocr_fallback_min_confidence,
+        fallback_min_english_ratio=settings.ocr_fallback_min_english_ratio,
     )
     token_counter = get_token_counter(settings.tokenizer_name)
 
@@ -85,7 +92,9 @@ def build_container(
         reranker=reranker,
         token_counter=token_counter,
     )
-    worker = IngestionWorker(settings, sessionmaker, ingestion_graph)
+    worker = IngestionWorker(
+        settings, sessionmaker, ingestion_graph, on_job_done=None if settings.surya_keep_alive else ocr.release
+    )
     return Container(
         settings=settings,
         engine=engine,

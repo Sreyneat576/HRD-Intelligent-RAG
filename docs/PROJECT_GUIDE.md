@@ -75,7 +75,7 @@ flowchart LR
 | Component | Choice | Why it fits HRD Intelligence |
 |---|---|---|
 | **Framework** | **LangChain** (loaders, retriever, compressor, prompts, chat model) + **LangGraph** (ingestion and chat pipelines as graphs) | Standard building blocks, clear node-by-node pipelines that are easy to extend (e.g. add an agent or a SQL tool node later) |
-| **LLM** | **Qwen3** (Apache-2.0). Dev: `qwen3:4b-instruct` on Ollama (~2.5 GB VRAM, fits the 4 GB RTX 2050). Prod: `Qwen/Qwen3-8B` on vLLM, or `Qwen3-30B-A3B-Instruct-2507` on a ≥ 48 GB GPU | Follows "answer only from the sources" well, reads tables, multilingual, first-class vLLM support, native tool calling for the future agents |
+| **LLM** | **Qwen3.5-4B** (Apache-2.0) as `qwen3.5:4b` on Ollama, **thinking off** (`LLM_EXTRA_BODY={"reasoning_effort": "none"}`). Prod: a larger Qwen on vLLM | Follows "answer only from the sources" well, reads tables, multilingual, first-class vLLM support, native tool calling for the future agents |
 | **Embeddings** | **BAAI/bge-m3** (1024-dim, 8 192-token input, MIT) | In the spec; multilingual (100+ languages incl. Khmer and Korean) so names and mixed-language documents embed well |
 | **Reranker** | **BAAI/bge-reranker-v2-m3** (cross-encoder, Apache-2.0) | Same family and languages as bge-m3. Re-scores the top 20 candidates so the small LLM sees only the best 5; the biggest quality gain for small models |
 | **Chunking** | **Structure-aware** per file type, ~450 tokens, 60 overlap, context header on every chunk | HRD files have structure (headings, slides, table rows); keeping it beats fixed-size splitting at no cost |
@@ -88,7 +88,7 @@ flowchart LR
 
 | | Dev laptop (RTX 2050 4 GB, 16 GB RAM) | Prod, 24 GB GPU | Prod, ≥ 48 GB GPU |
 |---|---|---|---|
-| LLM | Ollama `qwen3:4b-instruct` (6k context, flash attention + q8 KV cache; ~85% on GPU, ~12 tokens/s) | vLLM `Qwen/Qwen3-8B` (FP8/AWQ) | vLLM `Qwen/Qwen3-30B-A3B-Instruct-2507` |
+| LLM | Ollama `qwen3.5:4b` (3.3 GB with its vision part; ~56% on GPU on a 4 GB card, 6k context, thinking off) | vLLM `Qwen/Qwen3-8B` (FP8/AWQ) | vLLM `Qwen/Qwen3-30B-A3B-Instruct-2507` |
 | Embeddings | Ollama `bge-m3-cpu` (bge-m3 pinned to the CPU so the LLM keeps the GPU) | vLLM / TEI `BAAI/bge-m3` | same |
 | Reranker | TEI CPU `bge-reranker-v2-m3` (~2–5 s per question) | vLLM / TEI on GPU (< 200 ms) | same |
 
@@ -132,7 +132,9 @@ ai-service/
 │       ├── health.py           /health, /ready
 │       ├── schemas.py          Request / response models (OpenAPI contract)
 │       └── deps.py             FastAPI dependencies
-├── ui/app.py                   Streamlit test console (upload, inspect chunks, chat with debug)
+├── app/console/               Web console (/console): upload, chat, per-stage timings, pipeline log, model stack
+├── app/api/insights.py        /api/v1/info, /stats, /traces (KPIs and pipeline traces)
+├── app/ingestion/surya_worker.py  Surya OCR worker process (runs in .venv-surya)
 ├── migrations/                 Alembic migration (tables + HNSW / GIN indexes)
 ├── scripts/evaluate.py         Retrieval quality check (hit@k, MRR)
 ├── eval/                       Example evaluation questions
@@ -365,7 +367,9 @@ Optional: with `EUREKA_ENABLED=true` the service registers in Eureka as `ai-serv
 |---|---|---|
 | `SERVICE_TOKEN` | `change-me` | Shared secret with Spring — **change it** |
 | `DATABASE_URL` | `postgresql+asyncpg://hrd_ai:hrd_ai@localhost:5433/hrd_ai` | AI database (pgvector) |
-| `LLM_BASE_URL`, `LLM_MODEL` | Ollama, `qwen3:4b-instruct` | Any OpenAI-compatible chat endpoint |
+| `LLM_BASE_URL`, `LLM_MODEL` | Ollama, `qwen3.5:4b` | Any OpenAI-compatible chat endpoint |
+| `OCR_ENGINE`, `SURYA_PYTHON` | `auto`, `.venv-surya/...` | OCR mode and the Surya virtualenv's interpreter |
+| `CONSOLE_ENABLED` | false (true in `.env`) | Serve the web console at /console (development only) |
 | `LLM_EXTRA_BODY` | `{}` | e.g. `{"chat_template_kwargs": {"enable_thinking": false}}` for Qwen3 hybrid models on vLLM |
 | `EMBED_BASE_URL`, `EMBED_MODEL`, `EMBED_DIM` | Ollama, `bge-m3`, 1024 | Embedding endpoint (changing `EMBED_DIM` needs a new migration + re-index) |
 | `RERANK_ENABLED`, `RERANK_BASE_URL`, `RERANK_API` | true, TEI on :8081, `tei` | Reranker (`vllm` for vLLM's `/v1/rerank`) |
@@ -388,7 +392,7 @@ The full list with comments is in `.env.example` and `app/core/config.py`.
   fake models — upload → index → search, **documents outside `allowed_document_ids` are never returned**,
   folder chats, rename / copy / delete cascade, unchanged content not re-indexed, failed + retry, 10-session cap,
   SSE event order, auth errors.
-* **Test console** (`streamlit run ui/app.py`): upload real files, watch statuses, inspect chunks, choose
+* **Console** (http://localhost:8000/console): upload real files, watch statuses, inspect chunks and the ingestion waterfall, choose
   allowed documents, chat with streamed answers, citations and a retrieval debug table (search query,
   rerank / RRF scores, dense and keyword ranks).
 * **Retrieval evaluation** (`python scripts/evaluate.py eval/questions.example.jsonl`): hit@5 and MRR for
@@ -425,13 +429,34 @@ several replicas safely — the job queue uses `FOR UPDATE SKIP LOCKED`.
 
 ---
 
-## 14. Known limitations and next steps
+## 14. OCR: PaddleOCR + Surya, and pipeline timings
+
+**OCR (`OCR_ENGINE=auto`)**, chosen from the team benchmark (github.com/TyDine22/OCR_Test): PaddleOCR reads
+every scanned page first (fast, best English); the page is read again with **Surya** (surya-ocr 0.17, Khmer +
+English) when PaddleOCR's text looks wrong: mean confidence < 0.85, ≥ 15% of lines below 0.70 (mixed
+Khmer/English pages), or very few English words without high confidence. Surya runs in its own virtualenv
+(`.venv-surya`, CPU PyTorch) as a worker process that the service starts on first use; if it is missing or
+fails, the PaddleOCR text is kept and the reason is recorded.
+
+**Pipeline traces.** Every LangGraph node adds its time to a `trace` (a reducer merges them):
+
+| Ingestion (saved on the document) | Chat answer (saved on the message) |
+|---|---|
+| queue wait, parse/extract, OCR (engine, confidence and fallback reason per page), chunk (count, tokens), embed (chunks/s), store, total | prepare, rewrite, query embedding, vector search, keyword search, RRF fusion, rerank, LLM time to first token, generation (tokens, tokens/s), first token as the user sees it, total |
+
+The console shows them as waterfalls; `GET /api/v1/stats` returns averages and medians, `GET /api/v1/traces`
+the recent runs.
+
+## 15. Known limitations and next steps
 
 * **Aggregates over tables** ("average attendance of Gen 12") are not RAG questions — retrieval returns a few
   row groups, not the whole sheet. Next step: a LangGraph tool node that queries the structured HRD data
   (RDA / Assessment APIs, SQL / pandas) and a router that picks RAG or tools.
 * **Two-column PDF layouts** can interleave lines from both columns (PyMuPDF reading order).
 * **Renaming a file** rewrites the chunk headers but does not re-embed them (the old name stays in the vector).
+* **Laptop memory**: with Docker (Ollama + reranker), PaddleOCR and Surya all running, a 16 GB laptop with a
+  full C: drive can hit Windows error 1455 (*paging file is too small*) when Surya loads; the OCR then keeps
+  the PaddleOCR text. Free space on C: or move Docker's disk to another drive.
 * **Laptop speed**: on the 4 GB RTX 2050 the 4B model does not fit completely in VRAM (Windows keeps ~0.8 GB;
   ~85% of the model runs on the GPU, ~12 tokens/s). The reranker runs on the CPU, where scoring costs grow with
   the number of candidates (measured: 5 → 6 s, 10 → 16 s, 20 → 39 s), so the laptop `.env` uses

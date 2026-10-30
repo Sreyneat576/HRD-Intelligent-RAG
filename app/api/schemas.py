@@ -25,6 +25,7 @@ class DocumentOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     indexed_at: datetime | None
+    trace: dict[str, Any] = Field(default_factory=dict, description="Per-stage timings of the last indexing run")
     queued: bool | None = Field(default=None, description="Upload only: false when identical content was already indexed")
 
 
@@ -98,6 +99,7 @@ class MessageOut(BaseModel):
     role: str
     content: str
     citations: list[dict[str, Any]]
+    trace: dict[str, Any] = Field(default_factory=dict, description="Per-stage timings, search query, sources")
     created_at: datetime
 
 
@@ -116,3 +118,4 @@ class AskResponse(BaseModel):
     message: MessageOut
     search_query: str | None = None
     sources: list[dict[str, Any]] | None = None
+    trace: dict[str, Any] = Field(default_factory=dict)

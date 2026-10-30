@@ -1,6 +1,6 @@
 # Dev stack for the HRD Intelligence AI service.
 #   docker compose up -d                 -> Postgres+pgvector, Ollama (GPU), reranker (CPU)
-#   docker compose --profile app up -d   -> also runs the AI service + test UI in containers
+#   docker compose --profile app up -d   -> also runs the AI service (console at :8000/console) in a container
 name: hrd-ai
 
 services:
@@ -61,7 +61,8 @@ services:
       LLM_BASE_URL: http://ollama:11434/v1
       EMBED_BASE_URL: http://ollama:11434/v1
       RERANK_BASE_URL: http://reranker:80
-      OCR_ENGINE: tesseract
+      OCR_ENGINE: tesseract   # PaddleOCR/Surya run in the local dev setup
+      CONSOLE_ENABLED: "true"
     ports:
       - "8000:8000"
     volumes:
@@ -69,21 +70,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-
-  ui:
-    profiles: ["app"]
-    build:
-      context: .
-      args:
-        WITH_PADDLE: "false"
-    command: ["streamlit", "run", "ui/app.py", "--server.port", "8501", "--server.address", "0.0.0.0"]
-    env_file: .env
-    environment:
-      AI_SERVICE_URL: http://ai-service:8000
-    ports:
-      - "8501:8501"
-    depends_on:
-      - ai-service
 
 volumes:
   pgdata:

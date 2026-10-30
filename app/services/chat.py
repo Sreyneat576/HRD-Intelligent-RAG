@@ -1,6 +1,7 @@
 """Chat sessions, history and one question/answer turn (streams events from the LangGraph RAG graph)."""
 
 import logging
+import time
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
@@ -13,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.container import Container
 from app.core.security import UserContext
+from app.core.timing import ms_since
 from app.db.models import ChatMessage, ChatSession, Document
 from app.rag.prompts import ThinkTagFilter, source_payload, strip_citations
 
@@ -121,9 +123,11 @@ async def ask_events(
     {"event": "retrieval", ...}  (debug only) search query + ranked sources with scores
     {"event": "token", "text"}   answer text as it is generated
     {"event": "citations", ...}  sources cited in the answer
+    {"event": "trace", ...}      per-stage timings (prepare, rewrite, embed, search, rerank, LLM, total)
     {"event": "done", ...}       saved assistant message id
     {"event": "error", ...}      something failed
     """
+    started = time.perf_counter()
     settings = container.settings
     async with container.sessionmaker() as session:
         chat = await get_session_or_404(session, user, session_id)
@@ -135,6 +139,8 @@ async def ask_events(
             chat.title = question[:_TITLE_CHARS] + ("..." if len(question) > _TITLE_CHARS else "")
         await session.commit()
 
+    trace: dict[str, Any] = {"prepare_ms": ms_since(started), "model": settings.llm_model,
+                             "allowed_documents": len(allowed)}
     state: dict[str, Any] = {}
     think_filter = ThinkTagFilter()
     streamed: list[str] = []
@@ -146,12 +152,16 @@ async def ask_events(
                 if meta.get("langgraph_node") == "generate" and chunk.content:
                     text = think_filter.feed(str(chunk.content))
                     if text:
+                        trace.setdefault("first_token_ms", ms_since(started))
                         streamed.append(text)
                         yield {"event": "token", "text": text}
                 continue
             for node, update in payload.items():
-                state.update(update or {})
+                update = dict(update or {})
+                trace.update(update.pop("trace", None) or {})
+                state.update(update)
                 if node in ("not_found", "no_documents"):
+                    trace.setdefault("first_token_ms", ms_since(started))
                     streamed.append(update["answer"])
                     yield {"event": "token", "text": update["answer"]}
                 if node == "rerank" and debug:
@@ -172,8 +182,15 @@ async def ask_events(
 
     answer = state.get("answer") or "".join(streamed).strip()
     citations = state.get("citations") or []
+    trace["total_ms"] = ms_since(started)
+    trace["search_query"] = state.get("search_query")
+    trace["sources"] = [
+        {k: v for k, v in source_payload(i, d).items() if k != "snippet"}
+        for i, d in enumerate(state.get("sources") or [], 1)
+    ]
     async with container.sessionmaker() as session:
-        message = ChatMessage(session_id=session_id, role="assistant", content=answer, citations=citations)
+        message = ChatMessage(session_id=session_id, role="assistant", content=answer, citations=citations,
+                              trace=trace)
         session.add(message)
         chat = await session.get(ChatSession, session_id)
         if chat is not None:
@@ -182,6 +199,7 @@ async def ask_events(
         await session.refresh(message)
 
     yield {"event": "citations", "citations": citations}
+    yield {"event": "trace", "trace": trace}
     yield {
         "event": "done",
         "message_id": message.id,

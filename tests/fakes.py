@@ -77,3 +77,9 @@ class FakeRetriever:
         """Record the query and return the allowed documents."""
         self.queries.append(query)
         return [d for d in self.documents if d.metadata["document_id"] in self.allowed]
+
+    async def asearch(self, query: str) -> tuple[list[Document], dict]:
+        """Like HybridPgRetriever.asearch: documents plus a timing trace."""
+        documents = await self.ainvoke(query)
+        return documents, {"embed_ms": 1, "dense_ms": 2, "lexical_ms": 1, "fuse_ms": 0,
+                           "dense_hits": len(documents), "lexical_hits": 0, "candidates": len(documents)}

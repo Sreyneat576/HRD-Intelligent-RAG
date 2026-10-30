@@ -20,6 +20,7 @@ def build_chat_model(settings: Settings) -> BaseChatModel:
         timeout=settings.llm_timeout_seconds,
         max_retries=2,
         streaming=True,
+        stream_usage=True,  # token counts in the stream, used for the tokens/s in the pipeline trace
         extra_body=settings.llm_extra_body or None,
     )
 

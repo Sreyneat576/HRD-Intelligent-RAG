@@ -1,3 +1,4 @@
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
@@ -19,14 +20,15 @@ class Settings(BaseSettings):
     # --- LLM (OpenAI-compatible: Ollama in dev, vLLM in prod) ------------------
     llm_base_url: str = "http://localhost:11434/v1"
     llm_api_key: str = "ollama"
-    llm_model: str = "qwen3:4b-instruct"
+    llm_model: str = "qwen3.5:4b"
     llm_temperature: float = 0.1
     llm_max_tokens: int = 1024
     llm_context_window: int = 6144  # must match the server (OLLAMA_CONTEXT_LENGTH / vLLM --max-model-len)
     llm_timeout_seconds: float = 300  # first call may wait for the model to load
-    # Extra JSON body for the chat API, e.g. {"chat_template_kwargs": {"enable_thinking": false}}
-    # to turn off thinking for Qwen3 hybrid models on vLLM.
-    llm_extra_body: dict[str, Any] = {}
+    # Extra JSON body for the chat API. Qwen3.5 "thinks" by default: on Ollama the hidden reasoning used the
+    # whole token budget and left the answer empty. Turn it off:
+    #   Ollama: {"reasoning_effort": "none"}   vLLM: {"chat_template_kwargs": {"enable_thinking": false}}
+    llm_extra_body: dict[str, Any] = {"reasoning_effort": "none"}
 
     # --- Embeddings (OpenAI-compatible /v1/embeddings) --------------------------
     embed_base_url: str = "http://localhost:11434/v1"
@@ -51,12 +53,20 @@ class Settings(BaseSettings):
     table_rows_per_chunk: int = 25
 
     # --- OCR ---------------------------------------------------------------------
-    ocr_engine: Literal["paddle", "tesseract", "none"] = "paddle"
+    # auto = PaddleOCR first, Surya when PaddleOCR's text looks wrong (low confidence / not English, e.g. Khmer)
+    ocr_engine: Literal["auto", "paddle", "surya", "tesseract", "none"] = "auto"
     ocr_structure: bool = False  # PP-StructureV3 layout parsing (slow on CPU)
     ocr_paddle_mkldnn: bool = False  # oneDNN acceleration; breaks on Windows CPU with Paddle 3.x
     ocr_lang: str = "en"
     ocr_min_page_chars: int = 50
     ocr_dpi: int = 200
+    ocr_fallback_min_confidence: float = 0.85
+    ocr_fallback_min_english_ratio: float = 0.04
+    # Surya runs in its own virtualenv (PyTorch) as a worker process, see app/ingestion/surya_worker.py
+    surya_python: str = ".venv-surya/Scripts/python.exe" if os.name == "nt" else ".venv-surya/bin/python"
+    surya_device: str = "cpu"  # keep the small GPU for the LLM
+    # Surya uses ~5 GB RAM on the CPU. False = stop its worker after each indexing job (16 GB laptops).
+    surya_keep_alive: bool = False
 
     # --- Ingestion worker ----------------------------------------------------------
     worker_enabled: bool = True
@@ -79,6 +89,11 @@ class Settings(BaseSettings):
     history_turns: int = 6
     history_max_tokens: int = 1500
     max_sessions_per_user: int = 10
+
+    # --- Developer console (web UI at /console) ----------------------------------------
+    # Lets the browser call the API with a session cookie instead of the service token. Dev only.
+    console_enabled: bool = False
+    console_user_id: str = "admin-1"
 
     # --- Service discovery ----------------------------------------------------------
     eureka_enabled: bool = False

@@ -1,6 +1,7 @@
 """Hybrid retriever over pgvector: dense (HNSW, cosine) + lexical (Postgres full-text), fused with
 Reciprocal Rank Fusion. Results are always restricted to the document ids the caller may access."""
 
+import time
 from typing import Any, Literal
 
 from langchain_core.callbacks import AsyncCallbackManagerForRetrieverRun, CallbackManagerForRetrieverRun
@@ -12,6 +13,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.types import String
 
+from app.core.timing import ms_since
 from app.db.session import to_pgvector
 
 SearchMode = Literal["dense", "lexical", "hybrid"]
@@ -80,9 +82,16 @@ class HybridPgRetriever(BaseRetriever):
     async def _aget_relevant_documents(
         self, query: str, *, run_manager: AsyncCallbackManagerForRetrieverRun
     ) -> list[Document]:
-        """Run dense and/or lexical search on the allowed documents and fuse the rankings with RRF."""
+        """LangChain retriever API: the documents of `asearch` without the timings."""
+        documents, _ = await self.asearch(query)
+        return documents
+
+    async def asearch(self, query: str) -> tuple[list[Document], dict]:
+        """Run dense and/or lexical search on the allowed documents and fuse the rankings with RRF.
+        Returns (documents, trace) where trace holds the time of each step in milliseconds."""
+        trace: dict[str, Any] = {"embed_ms": 0, "dense_ms": 0, "lexical_ms": 0, "dense_hits": 0, "lexical_hits": 0}
         if not self.allowed_document_ids or not query.strip():
-            return []
+            return [], {**trace, "candidates": 0}
 
         rows: dict[int, Any] = {}
         dense_ids: list[int] = []
@@ -92,10 +101,13 @@ class HybridPgRetriever(BaseRetriever):
 
         qvec = None
         if self.mode in ("dense", "hybrid"):
+            started = time.perf_counter()
             qvec = to_pgvector(await self.embeddings.aembed_query(query))
+            trace["embed_ms"] = ms_since(started)
 
         async with self.sessionmaker() as session:
             if qvec is not None:
+                started = time.perf_counter()
                 # Keep HNSW recall high even when the permission filter removes most neighbours.
                 await session.execute(text(f"SET LOCAL hnsw.ef_search = {int(self.hnsw_ef_search)}"))
                 await session.execute(text("SET LOCAL hnsw.iterative_scan = relaxed_order"))
@@ -106,7 +118,9 @@ class HybridPgRetriever(BaseRetriever):
                     rows[row["id"]] = row
                     dense_ids.append(row["id"])
                     dense_scores[row["id"]] = float(row["score"])
+                trace["dense_ms"] = ms_since(started)
             if self.mode in ("lexical", "hybrid"):
+                started = time.perf_counter()
                 result = await session.execute(
                     _LEXICAL_SQL, {"query": query, "ids": self.allowed_document_ids, "k": self.lexical_k}
                 )
@@ -114,10 +128,12 @@ class HybridPgRetriever(BaseRetriever):
                     rows.setdefault(row["id"], row)
                     lexical_ids.append(row["id"])
                     lexical_scores[row["id"]] = float(row["score"])
+                trace["lexical_ms"] = ms_since(started)
 
+        started = time.perf_counter()
         fused = reciprocal_rank_fusion([dense_ids, lexical_ids], k=self.rrf_k)
         ranked = sorted(fused, key=fused.get, reverse=True)[: self.top_k]
-        return [
+        documents = [
             Document(
                 page_content=rows[chunk_id]["content"],
                 metadata={
@@ -135,3 +151,10 @@ class HybridPgRetriever(BaseRetriever):
             )
             for chunk_id in ranked
         ]
+        trace.update(
+            fuse_ms=ms_since(started),
+            dense_hits=len(dense_ids),
+            lexical_hits=len(lexical_ids),
+            candidates=len(documents),
+        )
+        return documents, trace

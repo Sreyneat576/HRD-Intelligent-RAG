@@ -90,7 +90,7 @@ async def ask(
     container: Container = Depends(get_container),
 ):
     """Ask a question. With `stream=true` (default) the answer arrives as Server-Sent Events:
-    `retrieval` (debug only), `token`*, `citations`, `done` - or `error`."""
+    `retrieval` (debug only), `token`*, `citations`, `trace`, `done` - or `error`."""
     await service.get_session_or_404(session, user, session_id)  # 404 before the stream starts
     events = service.ask_events(
         container, user, session_id, body.content, body.allowed_document_ids, debug=body.debug
@@ -113,6 +113,8 @@ async def ask(
             result["sources"] = event["sources"]
         if event["event"] == "citations":
             result["citations"] = event["citations"]
+        if event["event"] == "trace":
+            result["trace"] = event["trace"]
         if event["event"] == "done":
             result["done"] = event
     done = result["done"]
@@ -122,8 +124,10 @@ async def ask(
             role="assistant",
             content=done["answer"],
             citations=result.get("citations", []),
+            trace=result.get("trace", {}),
             created_at=done["created_at"],
         ),
         search_query=done.get("search_query"),
         sources=result.get("sources"),
+        trace=result.get("trace", {}),
     )
